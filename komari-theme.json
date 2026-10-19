@@ -1,0 +1,141 @@
+{
+  "name": "CRT",
+  "short": "CRT",
+  "description": {
+    "zh-CN": "终端风格主题：用 top、htop、ssh 等命令的输出展示服务器状态，底部命令行可交互",
+    "en": "Terminal-style theme: server status rendered as top, htop and ssh output, with an interactive command line"
+  },
+  "version": "1.1.1",
+  "author": "kisukri (original) · Aone2233 (Komari/Nekomari port)",
+  "url": "https://github.com/Aone2233/komari-theme-crt",
+  "preview": "preview.png",
+  "configuration": {
+    "type": "managed",
+    "name": {
+      "zh-CN": "CRT 主题设置",
+      "en": "CRT Theme Settings"
+    },
+    "data": [
+      {
+        "type": "title",
+        "name": { "zh-CN": "外观", "en": "Appearance" }
+      },
+      {
+        "key": "palette",
+        "type": "select",
+        "name": { "zh-CN": "默认配色", "en": "Default palette" },
+        "options": "graphite,phosphor,amber,nord,dusk,paper",
+        "default": "graphite",
+        "help": {
+          "zh-CN": "访客第一次打开时看到的配色（graphite 石墨 / phosphor 磷光绿 / amber 琥珀 / nord 北极蓝 / dusk 暮紫 / paper 纸白）。访客自己切换过之后，以访客的选择为准。",
+          "en": "Palette shown on a visitor's first visit (graphite / phosphor / amber / nord / dusk / paper). Once a visitor switches, their own choice wins."
+        }
+      },
+      {
+        "key": "allow_switch",
+        "type": "switch",
+        "name": { "zh-CN": "允许访客切换配色", "en": "Let visitors switch palette" },
+        "default": true,
+        "help": {
+          "zh-CN": "关闭后只在顶栏显示当前配色，访客不能通过 theme 命令或菜单更换。",
+          "en": "When off, the top bar only shows the current palette; the theme menu and the `theme` command stop changing it."
+        }
+      },
+      {
+        "key": "scanlines",
+        "type": "switch",
+        "name": { "zh-CN": "扫描线", "en": "Scanlines" },
+        "default": false,
+        "help": {
+          "zh-CN": "在页面上叠一层很淡的 CRT 横纹。",
+          "en": "Overlay a faint CRT horizontal scanline pattern."
+        }
+      },
+      {
+        "type": "title",
+        "name": { "zh-CN": "Shell", "en": "Shell" }
+      },
+      {
+        "key": "username",
+        "type": "string",
+        "name": { "zh-CN": "访客用户名", "en": "Guest username" },
+        "default": "guest",
+        "help": {
+          "zh-CN": "提示符里的用户名，例如 guest@hostname:~$；管理员登录后显示为 root@hostname:~#。只用英文字母、数字、点、横线和下划线。",
+          "en": "Username in the prompt, e.g. guest@hostname:~$; an administrator sees root@hostname:~#. Letters, digits, dot, hyphen and underscore only."
+        }
+      },
+      {
+        "key": "hostname",
+        "type": "string",
+        "name": { "zh-CN": "主机名", "en": "Hostname" },
+        "default": "",
+        "help": {
+          "zh-CN": "提示符里 @ 后面的名字，留空则使用站点名的小写形式。只用英文字母、数字、点、横线和下划线。",
+          "en": "Name after @ in the prompt. Empty uses the lowercased site name. Letters, digits, dot, hyphen and underscore only."
+        }
+      },
+      {
+        "type": "title",
+        "name": { "zh-CN": "首页", "en": "Home" }
+      },
+      {
+        "key": "notice",
+        "type": "textbox",
+        "name": { "zh-CN": "公告", "en": "Notice" },
+        "default": "",
+        "help": {
+          "zh-CN": "以纯文本显示在页面顶部，留空不显示。页面其余部分为英文，公告建议也用英文。",
+          "en": "Plain text shown at the top of the page; empty hides it. The rest of the page is English, so an English notice fits best."
+        }
+      },
+      {
+        "key": "show_summary",
+        "type": "switch",
+        "name": { "zh-CN": "显示汇总", "en": "Show summary" },
+        "default": true,
+        "help": {
+          "zh-CN": "页面上方 top 的汇总区：在线数、负载、CPU、内存、网速和今日流量。",
+          "en": "The top summary block: hosts up, load average, CPU, memory, network rate and today's traffic."
+        }
+      },
+      {
+        "key": "default_view",
+        "type": "select",
+        "name": { "zh-CN": "默认视图", "en": "Default view" },
+        "options": "grid,list",
+        "default": "grid",
+        "help": {
+          "zh-CN": "访客第一次打开时的视图：grid 为 htop 面板，list 为 top 表格。访客自己切换过之后，以访客的选择为准。",
+          "en": "View on a visitor's first visit: grid is the htop panes, list is the top table. A visitor's own switch wins afterwards."
+        }
+      },
+      {
+        "key": "show_remark",
+        "type": "switch",
+        "name": { "zh-CN": "显示公开备注", "en": "Show public remark" },
+        "default": true,
+        "help": {
+          "zh-CN": "在面板和详情页显示节点的公开备注。",
+          "en": "Show each node's public remark in the panes and on the detail page."
+        }
+      },
+      {
+        "type": "title",
+        "name": { "zh-CN": "顶栏", "en": "Top bar" }
+      },
+      {
+        "key": "show_admin",
+        "type": "switch",
+        "name": { "zh-CN": "显示后台入口", "en": "Show admin entry" },
+        "default": true,
+        "help": {
+          "zh-CN": "顶部状态栏里的 admin 链接；管理员登录后始终显示。",
+          "en": "The admin link in the status bar. An administrator always sees it after signing in."
+        }
+      }
+    ]
+  }
+}
+
+

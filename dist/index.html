@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="en" data-palette="graphite">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="color-scheme" content="dark light" />
+    <link rel="icon" href="/favicon.svg" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+    <link rel="preload" href="/fonts/jetbrains-mono-400.woff2" as="font" type="font/woff2" crossorigin />
+    <title>status</title>
+    <script>
+      // 配色是访客自己的偏好，所以在首次绘制前就应用，避免闪一下默认色。
+      try {
+        var p = localStorage.getItem("crt.palette")
+        if (p) document.documentElement.dataset.palette = p
+      } catch (e) {}
+    </script>
+    <link rel="stylesheet" href="/style.css" />
+  </head>
+  <body>
+    <header id="bar" class="tmux"></header>
+    <div id="app" class="app">
+      <div id="notice" class="notice" hidden></div>
+      <main id="screen" class="screen">
+        <div class="dim">connecting<span class="cursor">█</span></div>
+      </main>
+      <section id="out" class="out" hidden></section>
+      <form id="cli" class="cli" autocomplete="off">
+        <label for="cmd" class="ps1" id="ps1">guest@status:~$</label>
+        <span class="field">
+          <input id="cmd" name="cmd" spellcheck="false" autocapitalize="off" autocomplete="off" enterkeyhint="go"
+                 placeholder="run 'help', or 'grep <name>' to filter" />
+        </span>
+      </form>
+    </div>
+    <div class="scan" aria-hidden="true"></div>
+    <noscript>This theme renders the monitoring page in the browser; JavaScript is required.</noscript>
+    <script src="/app.js" defer></script>
+  </body>
+</html>
