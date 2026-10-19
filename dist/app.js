@@ -1,7 +1,7 @@
 ;(() => {
   "use strict"
 
-  const VERSION = "1.1.1"
+  const VERSION = "1.0.0"
 
   const PALETTES = [
     { id: "graphite", name: "Graphite", sw: "#2a2c30" },
@@ -1010,282 +1010,14 @@
     put(detail.ranges, ps("~", "sar", h("span", null, "-u -r -n DEV ", flags.map((f, i) => [i ? " " : "", f])), n ? nodeHost(n) : null))
   }
 
-  // ---- 延迟（ping）图表 -------------------------------------------------
-  //
-  // 数据来自 public:queryMetrics 的 ping.* 指标：服务端把每条 ping 记录写成三条
-  // 指标，tags 里带 task_id / family / protocol / role。同一任务的双栈、双协议或
-  // 参考点因此是【不同的序列】，不能合成一条线。
-  //
-  // 延迟优先用 ping.success_latency_ms（v2 起只记录成功的样本）；旧服务端没有这条
-  // 指标时退回 ping.latency_ms，并把负值（失败样本）当作缺失。两条路都拿不到数据
-  // 时再退回 /api/records/ping（旧版本一直有的原始记录表），避免“图表凭空消失”。
-  const PING_COLORS = ["var(--fg)", "var(--accent)", "var(--warn)", "var(--key)", "var(--dim)"]
-  const PING_METRIC_KEYS = ["ping.success_latency_ms", "ping.latency_ms", "ping.loss"]
-  const PING_FALLBACK_KEYS = ["ping.latency_ms", "ping.loss"]
-  const pingMs = (value) => (value >= 100 ? value.toFixed(0) : value.toFixed(1)) + " ms"
-  const pingPct = (value) => value.toFixed(1) + "%"
-
-  async function queryPingSeries(uuid, keys) {
-    return rpc("public:queryMetrics", {
-      entity_id: uuid,
-      metric_keys: keys,
-      hours: state.range,
-      max_points: 240,
-      aggregation: "avg",
-    }).catch((e) => ({ error: e.message }))
-  }
-
-  function seriesTags(series) {
-    if (series && series.tags) return series.tags
-    const points = series && Array.isArray(series.points) ? series.points : []
-    const first = points.find((point) => point && point.tags)
-    return (first && first.tags) || {}
-  }
-
-  function seriesPoints(series) {
-    const out = new Map()
-    for (const point of (series && series.points) || []) {
-      if (!point || typeof point.value !== "number" || !isFinite(point.value)) continue
-      const ts = Date.parse(point.time) / 1000
-      if (isFinite(ts)) out.set(ts, point.value)
-    }
-    return out
-  }
-
-  function medianStep(times) {
-    const diffs = []
-    for (let i = 1; i < times.length; i++) {
-      const diff = times[i] - times[i - 1]
-      if (diff > 0) diffs.push(diff)
-    }
-    if (!diffs.length) return 60
-    diffs.sort((left, right) => left - right)
-    return Math.max(1, Math.round(diffs[Math.floor(diffs.length / 2)]))
-  }
-
-  // 任务是否属于这台机器：clients 里点名，或 default_on（新加入的机器自动开启）。
-  // clients 为空且 default_on=false 的任务不属于任何现有节点。
-  function pingTasksFor(tasks, uuid) {
-    return (Array.isArray(tasks) ? tasks : []).filter((task) => {
-      if (!task) return false
-      const clients = Array.isArray(task.clients) ? task.clients : []
-      return clients.includes(uuid) || task.default_on === true
-    })
-  }
-
-  // 旧服务端/旧数据的兜底：/api/records/ping 一直存在，按 60 秒桶聚合成与指标同形的
-  // 延迟平均值与丢包比例。没有任何记录时返回空数组，由调用方决定是否显示占位提示。
-  async function pingRecordGroups(uuid, tasks) {
-    const groups = new Map()
-    for (const task of tasks.slice(0, 8)) {
-      const res = await apiGet(
-        `/api/records/ping?uuid=${encodeURIComponent(uuid)}&task_id=${encodeURIComponent(task.id)}&hours=${state.range}`,
-      ).catch(() => null)
-      const records = res && Array.isArray(res.records) ? res.records : []
-      const buckets = new Map()
-      for (const record of records) {
-        const ts = Date.parse(record.time) / 1000
-        if (!isFinite(ts)) continue
-        const tags = {
-          task_id: String(record.task_id || task.id),
-          family: record.family || "",
-          protocol: record.ping_type || "",
-          role: record.role || "",
-        }
-        const key = [tags.task_id, tags.family, tags.protocol, tags.role].join("|")
-        const group = groups.get(key) || { taskId: tags.task_id, task, tags, values: new Map(), loss: new Map() }
-        const minute = Math.floor(ts / 60) * 60
-        const bucket = buckets.get(key) || new Map()
-        const stat = bucket.get(minute) || { sum: 0, count: 0, loss: 0, total: 0 }
-        stat.total += 1
-        if (typeof record.value === "number" && record.value < 0) stat.loss += 1
-        else if (typeof record.value === "number") {
-          stat.sum += record.value
-          stat.count += 1
-        }
-        bucket.set(minute, stat)
-        buckets.set(key, bucket)
-        groups.set(key, group)
-      }
-      for (const [key, bucket] of buckets) {
-        const group = groups.get(key)
-        for (const [ts, stat] of bucket) {
-          if (stat.count > 0) group.values.set(ts, stat.sum / stat.count)
-          group.loss.set(ts, stat.total ? stat.loss / stat.total : 0)
-        }
-      }
-    }
-    return [...groups.values()].filter((group) => group.values.size)
-  }
-
-  async function loadPingCharts(uuid) {
-    const [tasksRaw, first] = await Promise.all([
-      rpc("public:getPublicPingTasks").catch(() => []),
-      queryPingSeries(uuid, PING_METRIC_KEYS),
-    ])
-    let result = first
-    if (result && result.error) result = await queryPingSeries(uuid, PING_FALLBACK_KEYS)
-    const tasks = Array.isArray(tasksRaw) ? tasksRaw : []
-    const taskMap = new Map()
-    for (const task of tasks) taskMap.set(String(task.id), task)
-
-    const families = new Map()
-    const noteFamily = (taskId, family) => {
-      if (!family) return
-      const set = families.get(taskId) || new Set()
-      set.add(family)
-      families.set(taskId, set)
-    }
-
-    const groups = new Map()
-    for (const series of (result && result.series) || []) {
-      const tags = seriesTags(series)
-      const taskId = String(tags.task_id || "").trim()
-      if (!taskId) continue
-      const key = [taskId, tags.family || "", tags.protocol || "", tags.role || ""].join("|")
-      const group = groups.get(key) || { taskId, task: taskMap.get(taskId), tags, success: null, latency: null, loss: null }
-      if (series.metric_key === "ping.success_latency_ms") group.success = series
-      else if (series.metric_key === "ping.latency_ms") group.latency = series
-      else if (series.metric_key === "ping.loss") group.loss = series
-      groups.set(key, group)
-      noteFamily(taskId, tags.family)
-    }
-
-    const chartGroups = []
-    for (const group of groups.values()) {
-      const source = group.success || group.latency
-      if (!source) continue
-      const values = seriesPoints(source)
-      // 旧序列里失败样本是 -1；成功序列本来就不含它们。这里统一把负值当缺失。
-      for (const [ts, value] of [...values]) if (value < 0) values.delete(ts)
-      if (!values.size) continue
-      chartGroups.push({ ...group, values, loss: group.loss ? seriesPoints(group.loss) : new Map() })
-    }
-
-    const assigned = pingTasksFor(tasks, uuid)
-    if (!chartGroups.length) {
-      // 指标库里没有 ping 序列（旧服务端 / 历史数据未迁移）：退回原始记录表。
-      chartGroups.push(...(await pingRecordGroups(uuid, assigned)))
-      for (const group of chartGroups) noteFamily(group.taskId, group.tags.family)
-    }
-    if (!chartGroups.length) {
-      // 有 ping 任务、但两个数据源都没有样本：显示一张带说明的空图，而不是让图表
-      // 静默消失 —— 否则读者无法区分“没有配置 ping”和“有配置但没数据”。
-      if (assigned.length) {
-        return { charts: [chart("ping latency ms", [], 60, [], pingMs, null, "no ping samples in this range", true)], error: "" }
-      }
-      return { charts: [], error: (result && result.error) || "" }
-    }
-
-    const order = (group) => [
-      group.task ? group.task.weight ?? 0 : Number.MAX_SAFE_INTEGER,
-      Number(group.taskId) || 0,
-      group.tags.family || "",
-      group.tags.protocol || "",
-    ]
-    chartGroups.sort((left, right) => {
-      const a = order(left), b = order(right)
-      for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) return a[i] < b[i] ? -1 : 1
-      return 0
-    })
-
-    const label = (group) => {
-      const base = (group.task && group.task.name) || `task ${group.taskId}`
-      const bits = []
-      if (group.tags.role === "reference") bits.push("ref")
-      const family = group.tags.family
-      const familyCount = (families.get(group.taskId) || new Set()).size
-      if (family && familyCount > 1) bits.push(family === "ipv6" ? "v6" : family === "ipv4" ? "v4" : family)
-      const protocol = group.tags.protocol
-      if (protocol && (!group.task || group.task.type !== protocol)) bits.push(protocol)
-      return bits.length ? `${base} (${bits.join(" ")})` : base
-    }
-
-    const build = (pick, groups = chartGroups) => {
-      const used = groups
-        .map((group) => ({ group, points: pick(group) }))
-        .filter((item) => item.points && item.points.size)
-      if (!used.length) return null
-      const times = [...new Set(used.flatMap((item) => [...item.points.keys()]))].sort((left, right) => left - right)
-      const series = used.map((item, index) => ({
-        name: label(item.group),
-        color: PING_COLORS[index % PING_COLORS.length],
-        v: times.map((ts) => (item.points.has(ts) ? item.points.get(ts) : null)),
-      }))
-      return { times, series, step: medianStep(times) }
-    }
-
-    const charts = []
-    const latency = build((group) => group.values)
-    if (latency) {
-      charts.push(chart("ping latency ms", latency.times, latency.step, latency.series, pingMs, null, "", true))
-    }
-    // 丢包一直为 0 时不画一张平躺的 0% 图，只列真正丢过包的路径；
-    // 一旦画了，就保留这些路径的 0% 桶，否则折线会断成几个孤立圆点，
-    // 看不出「哪段时间正常、哪一段在丢」。
-    const lossGroups = chartGroups.filter((group) => [...group.loss.values()].some((value) => value > 0))
-    const loss = lossGroups.length
-      ? build((group) => {
-          const values = new Map()
-          for (const [ts, value] of group.loss) values.set(ts, value * 100)
-          return values
-        }, lossGroups)
-      : null
-    if (loss) {
-      charts.push(chart("ping loss %", loss.times, loss.step, loss.series, pingPct, 100, "", true))
-    }
-    return { charts, error: "" }
-  }
-
-  // `ping` 命令的现场诊断：把「任务 → 指标查询 → 原始记录」三段各自的实际情况打印出来。
-  // 页面上「没有 ping 图」通常来自其中一个环节为空，这里不必让用户去翻开发者工具。
-  async function printPingDiagnostics(node) {
-    const lines = [span("dim", `host: ${node.name} (${node.id})   range ${winLabel(state.range)}`)]
-    let tasks = []
-    try {
-      tasks = await rpc("public:getPublicPingTasks")
-    } catch (e) {
-      lines.push(span("err", `public:getPublicPingTasks failed: ${e.message}`))
-    }
-    const assigned = pingTasksFor(tasks, node.id)
-    if (!assigned.length) {
-      lines.push(span("warn", "no ping task assigned to this host"))
-      tasks.slice(0, 8).forEach((task) => lines.push(span("dim", `  task ${task.id} ${task.name}: clients=${(task.clients || []).length} default_on=${!!task.default_on}`)))
-    } else {
-      for (const task of assigned) lines.push(`  task ${task.id}  ${task.name}  (${task.type}, ${task.interval}s)`)
-    }
-    const metrics = await queryPingSeries(node.id, PING_METRIC_KEYS)
-    if (metrics.error) {
-      lines.push(span("err", `queryMetrics: ${metrics.error}`))
-      const fallback = await queryPingSeries(node.id, PING_FALLBACK_KEYS)
-      if (fallback.error) lines.push(span("err", `queryMetrics (legacy keys): ${fallback.error}`))
-      else lines.push(`queryMetrics (legacy keys): ${(fallback.series || []).length} series`)
-    } else {
-      const series = Array.isArray(metrics.series) ? metrics.series : []
-      const points = series.reduce((total, item) => total + (Array.isArray(item.points) ? item.points.length : 0), 0)
-      lines.push(`queryMetrics: ${series.length} series, ${points} points`)
-      for (const item of series.slice(0, 10)) {
-        lines.push(span("dim", `  ${item.metric_key}  ${JSON.stringify(item.tags || {})}  ${(item.points || []).length} pts`))
-      }
-    }
-    for (const task of assigned.slice(0, 8)) {
-      const res = await apiGet(`/api/records/ping?uuid=${encodeURIComponent(node.id)}&task_id=${encodeURIComponent(task.id)}&hours=${state.range}`).catch(() => null)
-      lines.push(`records/ping task ${task.id}: ${res && Array.isArray(res.records) ? res.records.length : 0} records`)
-    }
-    print("ping", ...lines)
-  }
-
   async function loadCharts() {
     if (!detail || document.hidden) return
     const d = detail
     const n = state.nodes.find((x) => x.id === d.id)
     const points = Math.max(60, Math.min(1440, Math.round((d.charts.clientWidth || 800) / 2)))
     if (!d.charts.childElementCount) d.charts.append(h("div", { class: "term dim" }, "collecting samples…"))
-    const [res, ping] = await Promise.all([
-      apiGet(`/api/records/load?uuid=${encodeURIComponent(d.id)}&hours=${state.range}&load_type=all`)
-        .catch((e) => ({ error: e.message })),
-      loadPingCharts(d.id),
-    ])
+    const res = await apiGet(`/api/records/load?uuid=${encodeURIComponent(d.id)}&hours=${state.range}&load_type=all`)
+      .catch((e) => ({ error: e.message }))
     if (detail !== d) return
     // /api/records/load 按请求跨度自动选择分辨率（分钟/5 分钟/小时/天桶），这里再按
     // 图表宽度抽一层，保证一条折线的点数与像素数同量级。
@@ -1328,15 +1060,12 @@
       chart("%diskused", t, step, [{ name: "/", color: "var(--fg)", v: rows.map((r) => (diskTotal ? pctOf(r.disk_used, diskTotal) : null)) }],
         pct, 100, res.error),
     ]
-    for (const extra of ping.charts) charts.push(extra)
     put(d.charts, ...charts)
   }
 
-  function chart(title, ts, step, series, fmt, fixedMax, error, wide) {
+  function chart(title, ts, step, series, fmt, fixedMax, error) {
     series = series.filter(Boolean)
-    // ping 图可能同时有多条任务/地址族折线，图例较长；让它横跨整个 charts 网格，
-    // 否则半宽列里标题会被挤成两行、压到折线上。
-    const box = h("section", { class: "chart" + (wide ? " wide" : "") })
+    const box = h("section", { class: "chart" })
     const all = series.flatMap((x) => x.v).filter((v) => v != null && isFinite(v))
     box.append(h("div", { class: "head" }, span("t", title),
       h("span", { class: "legend" }, series.map((x) => h("span", null, h("i", { style: { background: x.color } }), x.name))),
@@ -1449,7 +1178,6 @@
     ["top", "process-table view"],
     ["sort <key>", Object.keys(SORTS).join(" | ") + " | off"],
     ["theme [name]", PALETTES.map((p) => p.id).join(" | ")],
-    ["ping [server]", "diagnose the ping chart: tasks, metric series, raw records"],
     ["clear", "clear this output"],
   ]
   const COMMANDS = {
@@ -1497,15 +1225,6 @@
     whoami: () => print("whoami", user()),
     hostname: () => print("hostname", host()),
     uptime: () => print("uptime", topSummary(state.nodes || []).firstChild.textContent.replace(/^top - /, " ")),
-    ping: (args) => {
-      const node = args.length
-        ? findNode(args.join(" "))
-        : state.route != null
-          ? (state.nodes || []).find((item) => item.id === state.route)
-          : null
-      if (!node) return print("ping", span("err", "ping: ssh into a server first, or: ping <server>"))
-      printPingDiagnostics(node)
-    },
     admin: () => { location.href = "/admin" },
   }
   const QUIET = new Set(["grep", "ls"])
