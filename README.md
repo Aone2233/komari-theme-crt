@@ -44,6 +44,8 @@
 
 Nekomari 与 Komari 的导入流程相同：都读取 zip 根目录的 `komari-theme.json` 和 `dist/`。
 
+> **不需要 ping 图？** Releases 里另有 [CRT v1.0.0 (no ping charts)](../../releases/tag/v1.0.0)：界面与功能相同，但详情页只有四张基础图，适合不提供 ping 指标的旧环境。最新版仍是 v1.1.1（含 ping 图），后台“更新”也只会取最新版。
+
 ### 目录拷贝
 
 不想走导入流程时，把 `komari-theme.json`、`preview.png` 和 `dist/` 放进：
